@@ -7,9 +7,11 @@
 
 using namespace std;
 
+CMinHookEx &mh = CMinHookEx::getInstance();
+
 struct test
 {
-	int c = 7;
+	int c = 1;
 	int testFunc(int a) 
 	{
 		cout << "I'm testFunc from testinner c = " << c << endl; return 1;
@@ -18,7 +20,7 @@ struct test
 
 struct test2
 {
-	int c = 7;
+	int c = 2;
 	int _cdecl testFunc(int a)
 	{
 		cout << "I'm testFunc from test2 cdecl inner c = " <<c << endl; return 1;
@@ -46,9 +48,19 @@ int __cdecl myTestFunc4(test *pVoid, int a)
 	cout << "I'm myTestFunc4 explicit cdecl" << endl; return 0;
 }
 
+struct SShared
+{
+	int digit;
+	void changeDigit()
+	{
+		if(digit < 5000000)
+		digit++;
+		else digit--;
+	}
+};
+
 int main()
 {
-	CMinHookEx &mh = CMinHookEx::getInstance();
 
 	MessageBeep(100);
 	Sleep(1000);
@@ -75,21 +87,63 @@ int main()
 	{
 		cout << "hook for test::testFunc, a = " << a << endl;
 		pThis->c = 100500;
-		CMinHookEx::getInstance()[&test::testFunc]->object(pThis).originalMethod(22); 
+		CMinHookEx::getInstance()[&test::testFunc]->object(pThis).originalMethod(22);  
 		return 0; 
 	}).enable();
+
 	mh.methodHook(&test2::testFunc, [](test2 *pThis, int a) {cout << "hook for test::testFunc, a = " << a << endl; pThis->c = 100500; return 0; }).enable();
 
 	test t1;
 	test2 t2;
+	t1.c = 0;
+	t2.c = 2;
+
+	auto om = mh[&test2::testFunc]->object(&t2).originalMethod;
+	mh[&test::testFunc]->object(&t1);
+	om(5);
 
 	t1.testFunc(15);
 	t2.testFunc(17);
 
-/*
 	mh[&test::testFunc]->object(&t1).originalMethod(22);
 	mh[&test2::testFunc]->object(&t2).originalMethod(45);
-*/
-	Sleep(2000);
+
+	cout << "ThreadTest:" << endl << endl;
+
+	SShared shared1, shared2;
+
+	mh.methodHook(&SShared::changeDigit, [](SShared *pThis)
+	{
+		CMinHookEx::getInstance()[&SShared::changeDigit]->object(pThis).originalMethod();
+	}).enable();
+
+
+	shared1.digit = 100;
+	shared2.digit = 1000;
+
+	int tc = GetTickCount();
+
+	thread th1([&]()
+	{
+		for(int i = 0; i < 100000000; i++)
+		{
+			shared1.changeDigit();
+		}
+	});
+
+	thread th2([&]()
+	{
+		for(int i = 0; i < 100000000; i++)
+		{
+			shared2.changeDigit();
+		}
+	});
+
+//	mh[&SShared::changeDigit]->object(0);
+
+	th1.join();
+	th2.join();
+	cout << "Test results: shared1.digit == " << shared1.digit << "; shared2.digit == " << shared2.digit << "; Time: " << GetTickCount()-tc;
+	Sleep(5000);
 	return 0;
 }

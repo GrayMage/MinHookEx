@@ -1,5 +1,5 @@
 #include <unordered_map>
-#include <memory>
+#include <thread>
 
 #ifdef _WIN32
 #include "minhook/src/HDE/hde32.c"
@@ -147,8 +147,7 @@ private:
 		{};
 
 		virtual ~CFunctionHook()
-		{
-		}
+		{}
 
 	public:
 		TFunc* const originalFunc;
@@ -165,8 +164,7 @@ private:
 		{};
 
 		virtual ~CMethodHook()
-		{
-		}
+		{}
 
 		//------------------------------------------------------------------------
 		template<typename TRet, typename ...TArgs>
@@ -195,22 +193,56 @@ private:
 
 				_originalMethod = *(TMethod *)&_pfnOriginal; //Used to call unhooked method via invoker
 
-				auto &sk = SKeeper::get();
-				sk._detour = detour;
-				sk._pOrigM = _originalMethod;
+				auto &sk = SKeeper::getInstance();
+				sk.setDetour(detour);
+				sk.setOrigMethod(_originalMethod);
 			}
+			CProxyObject(const CProxyObject&) = delete;
+			CProxyObject& operator=(const CProxyObject&) = delete;
 
-			struct SKeeper
+			class SKeeper
 			{
-				typename HelpTypes<TMethod>::TObject *_pThis;
+			private:
 				TMethod _pOrigM;
 				typename HelpTypes<TMethod>::TDetour _detour;
+				unordered_map<thread::id, typename HelpTypes<TMethod>::TObject*> _thisPointers;
 
+			public:
 				SKeeper() = default;
 				SKeeper(const SKeeper&) = delete;
 				SKeeper& operator=(const SKeeper&) = delete;
 
-				static SKeeper& get()
+				typename HelpTypes<TMethod>::TObject* thisPtr()
+				{
+					return _thisPointers[this_thread::get_id()];
+				}
+
+				void setThis(typename HelpTypes<TMethod>::TObject* pThis)
+				{
+					_thisPointers[this_thread::get_id()] = pThis;
+				}
+
+				TMethod origMethod()
+				{
+					return _pOrigM;
+				}
+
+				void setOrigMethod(const TMethod origMethod)
+				{
+					_pOrigM = origMethod;
+				}
+
+				typename HelpTypes<TMethod>::TDetour detour()
+				{
+					return _detour;
+				}
+
+				void setDetour(const typename HelpTypes<TMethod>::TDetour detour)
+				{
+					_detour = detour;
+				}
+
+				static SKeeper& getInstance()
 				{
 					static SKeeper s;
 					return s;
@@ -219,8 +251,8 @@ private:
 
 			TRet invokeOriginal(TArgs...Args)
 			{
-				auto &pt = SKeeper::get();
-				return (pt._pThis->*(pt._pOrigM))(forward<TArgs>(Args)...);
+				auto &pt = SKeeper::getInstance();
+				return (pt.thisPtr()->*(pt.origMethod()))(forward<TArgs>(Args)...);  //Thread unsafe..
 			}
 
 			TRet __cdecl invokeOriginalCDECL(TArgs...Args)
@@ -235,19 +267,19 @@ private:
 
 			TRet __thiscall invokeDetour(TArgs...Args) //Can't be static because of __thiscall
 			{
-				return SKeeper::get()._detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
 			}
 			TRet __cdecl invokeDetourCDECL(TArgs...Args)
 			{
-				return SKeeper::get()._detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
 			}
 			TRet __fastcall invokeDetourFASTCALL(TArgs...Args)
 			{
-				return SKeeper::get()._detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
 			}
 			TRet __stdcall invokeDetourSTDCALL(TArgs...Args)
 			{
-				return SKeeper::get()._detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
 			}
 
 			typename LPVOID detourProxyAddr()
@@ -280,8 +312,8 @@ private:
 	public:
 		TProxyObject& object(typename HelpTypes<TMethod>::TObject *pThis)
 		{
-			auto &sk = TProxyObject::SKeeper::get();
-			sk._pThis = pThis;
+			auto &sk = TProxyObject::SKeeper::getInstance();
+			sk.setThis(pThis);
 			return _proxyObject;
 		}
 	};
