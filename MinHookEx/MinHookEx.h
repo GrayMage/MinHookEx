@@ -125,16 +125,16 @@ private:
 			using Type = TFalseType;
 		};
 
-		template<typename T, typename T1, typename T2, typename T3>
-		static T conditionalValue(T1 val1, T2 val2, T3 val3)
+		template<typename TTrueType, typename TFirstValue>
+		static TTrueType conditionalValue(TFirstValue val1)
 		{
-			return (is_same<T, T1>::value ? (T)val1 : (is_same<T, T2>::value ? (T)val2 : (T)val3));
+			return (TTrueType)val1;
 		}
 
 		template<typename TTrueType, typename TFirstValue, typename ...TValues> //Unfinished. Needs specialization for the case when no values of TTrueType provided.
 		static TTrueType conditionalValue(TFirstValue val1, TValues...Values)
 		{
-			return is_same<TTrueType, TFirstValue>::value ? val1 : (TTrueType)conditionalValue<TTrueType>(forward<TValues>(Values)...);
+			return is_same<TTrueType, TFirstValue>::value ? (TTrueType)val1 : (TTrueType)conditionalValue<TTrueType>(forward<TValues>(Values)...);
 		}
 
 	};
