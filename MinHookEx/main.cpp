@@ -27,6 +27,21 @@ struct test2
 	}
 };
 
+struct Base
+{
+	virtual void m()
+	{
+		cout << "Base::m" << endl;
+	}
+};
+
+struct Derived : Base
+{
+	virtual void m() override
+	{
+		cout << "Derived::m" << endl;
+	}
+};
 
 int myTestFunc1(test *pVoid, int a)
 {
@@ -117,7 +132,12 @@ int main()
 		CMinHookEx::getInstance()[&SShared::changeDigit]->object(pThis).originalMethod();
 	}).enable();
 
+	Base &b = Derived();
 
+	mh.virtualMethodHook(&Base::m, &b, [](Base *pVoid){ cout << endl << "hi from virtual detour" << endl; }).enable();
+
+	b.m();
+	mh[&Base::m]->object(&b).originalMethod();
 	shared1.digit = 100;
 	shared2.digit = 1000;
 
@@ -125,7 +145,7 @@ int main()
 
 	thread th1([&]()
 	{
-		for(int i = 0; i < 100000000; i++)
+		for(int i = 0; i < 100000; i++)
 		{
 			shared1.changeDigit();
 		}
@@ -133,13 +153,11 @@ int main()
 
 	thread th2([&]()
 	{
-		for(int i = 0; i < 100000000; i++)
+		for(int i = 0; i < 100000; i++)
 		{
 			shared2.changeDigit();
 		}
 	});
-
-//	mh[&SShared::changeDigit]->object(0);
 
 	th1.join();
 	th2.join();

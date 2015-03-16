@@ -44,6 +44,8 @@ private:
 	};
 
 	//------------------------HELPERS-----------------------
+#include "VTableIndex.h"
+
 	template<typename TObj, typename TRet, typename ...TArgs> struct SFunc
 	{
 		using TFunc = TRet(*)(TArgs...);
@@ -353,6 +355,19 @@ public:
 	CMethodHook<TMethod>& methodHook(TMethod target, typename HelpTypes<TMethod>::TDetour detour)
 	{
 		auto h = new CMethodHook<TMethod>((LPVOID)(void*&)target, detour);
+
+		_hooks.insert(make_pair((void*&)target, h));
+
+		return *h;
+	}
+
+	template<typename TMethod>
+	CMethodHook<TMethod>& virtualMethodHook(TMethod target, typename HelpTypes<TMethod>::TObject *object, typename HelpTypes<TMethod>::TDetour detour)
+	{
+		int vtblOffset = VTableIndex(target);
+		int *vtbl = (int*)*(int*)object;
+		LPVOID t = (LPVOID)vtbl[vtblOffset];
+		auto h = new CMethodHook<TMethod>(t, detour);
 
 		_hooks.insert(make_pair((void*&)target, h));
 
