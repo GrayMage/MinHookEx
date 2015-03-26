@@ -44,7 +44,7 @@ private:
 	};
 
 	//------------------------HELPERS-----------------------
-#include "VTableIndex.h"
+#include "Inner/VTableIndex.h"
 
 	template<typename TObj, typename TRet, typename ...TArgs> struct SFunc
 	{
