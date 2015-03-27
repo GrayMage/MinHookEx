@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <stdarg.h>
 #include <functional>
+#include <d3d9.h>
 
 
 using namespace std;
@@ -29,10 +30,12 @@ struct test2
 
 struct Base
 {
-	virtual void m()
+	 virtual void m() = 0;
+/*
 	{
 		cout << "Base::m" << endl;
 	}
+*/
 };
 
 struct Derived : Base
@@ -123,7 +126,15 @@ int main()
 	mh[&test::testFunc]->object(&t1).originalMethod(22);
 	mh[&test2::testFunc]->object(&t2).originalMethod(45);
 
-	cout << "ThreadTest:" << endl << endl;
+	Base &b = Derived();
+
+	mh.virtualMethodHook(&Base::m, &b, [](Base *pVoid){ cout << endl << "hi from virtual detour" << endl; }).enable();
+
+	b.m();
+
+	mh[&Base::m]->object(&b).originalMethod();
+
+	cout << endl << "ThreadTest:" << endl << endl;
 
 	SShared shared1, shared2;
 
@@ -132,12 +143,6 @@ int main()
 		CMinHookEx::getInstance()[&SShared::changeDigit]->object(pThis).originalMethod();
 	}).enable();
 
-	Base &b = Derived();
-
-	mh.virtualMethodHook(&Base::m, &b, [](Base *pVoid){ cout << endl << "hi from virtual detour" << endl; }).enable();
-
-	b.m();
-	mh[&Base::m]->object(&b).originalMethod();
 	shared1.digit = 100;
 	shared2.digit = 1000;
 

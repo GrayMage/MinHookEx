@@ -55,7 +55,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MinHookEx.h" />
-    <ClInclude Include="VTableIndex.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
