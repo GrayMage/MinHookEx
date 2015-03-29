@@ -646,14 +646,14 @@ int VTableIndex(TRet(__fastcall TObject::*f)(TArgs...))
 }
 
 template <typename TRet, typename TObject, typename ...TArgs>
-int VTableIndex(TRet(TObject::*f)(TArgs...))
+int VTableIndex(TRet(__thiscall TObject::*f)(TArgs...))
 {
 	struct VTableCounter
 	{
-		VTableOffsetGetters();
+		VTableOffsetGetters(__thiscall);
 	} vt;
 
-	using VTMethod = int(VTableCounter::*)();
+	using VTMethod = int(__thiscall VTableCounter::*)();
 	VTMethod getIndex = (VTMethod)f;
 	return (vt.*getIndex)();
 }
