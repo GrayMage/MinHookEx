@@ -1,5 +1,6 @@
 #include <unordered_map>
 #include <thread>
+#include <atomic>
 
 #ifdef _WIN32
 #include "minhook/src/HDE/hde32.c"
@@ -29,8 +30,8 @@ private:
 		CHook() : CHook(nullptr)
 		{};
 
-		virtual ~CHook()
-		{};
+		virtual void deleteLater() = 0;		
+
 	public:
 
 		void enable() const
@@ -149,7 +150,14 @@ private:
 		{};
 
 		virtual ~CFunctionHook()
-		{}
+		{
+			MH_RemoveHook(_pfnTarget);
+		}
+
+		virtual void deleteLater() override
+		{
+			delete this;
+		}
 
 	public:
 		TFunc* const originalFunc;
@@ -165,8 +173,11 @@ private:
 		CMethodHook(LPVOID pfnTarget, typename HelpTypes<TMethod>::TDetour detour) : CHook(pfnTarget), _proxyObject(pfnTarget, detour)
 		{};
 
-		virtual ~CMethodHook()
-		{}
+		virtual void deleteLater() override
+		{
+			_proxyObject.safeCleanup();
+			delete this;
+		}
 
 		//------------------------------------------------------------------------
 		template<typename TRet, typename ...TArgs>
@@ -184,33 +195,40 @@ private:
 				TFASTCALLInvoker, TTCorCDECL > ::Type;
 
 			TMethod _originalMethod;
+			LPVOID _targetMethod;
 
 			CProxyObject(LPVOID target, typename HelpTypes<TMethod>::TDetour detour,
 				TInvokerType invoker = HelpTypes<TMethod>::conditionalValue<TInvokerType>(&CProxyObject::invokeOriginalCDECL, &CProxyObject::invokeOriginal, &CProxyObject::invokeOriginalFASTCALL))
-				: originalMethod((HelpTypes<TMethod>::TOrigFunc*&)invoker) //second arg here to make originalmethod CONST
+				: _targetMethod(target),
+					originalMethod((HelpTypes<TMethod>::TOrigFunc*&)invoker) //second arg here to make originalmethod CONST
 			{
 				LPVOID _pfnOriginal;
 
-				MH_CreateHook(target, detourProxyAddr(), &_pfnOriginal);
-
-				_originalMethod = *(TMethod *)&_pfnOriginal; //Used to call unhooked method via invoker
-
-				auto &sk = SKeeper::getInstance();
-				sk.setDetour(detour);
-				sk.setOrigMethod(_originalMethod);
+				MH_CreateHook(_targetMethod, detourProxyAddr(), &_pfnOriginal);
+				
+				auto &sk = getKeeper();
+				
+				sk.detour = detour;
+				sk.pOrigM = *(TMethod *)&_pfnOriginal; //Used to call unhooked method via invoker
+				sk.threadCounter = 0;
 			}
+
+			~CProxyObject()
+			{
+				delete &getKeeper();
+			}
+
 			CProxyObject(const CProxyObject&) = delete;
 			CProxyObject& operator=(const CProxyObject&) = delete;
 
-			class SKeeper
+			struct SKeeper
 			{
+				friend class CMethodHook;
 			private:
-				TMethod _pOrigM;
-				typename HelpTypes<TMethod>::TDetour _detour;
 				unordered_map<thread::id, typename HelpTypes<TMethod>::TObject*> _thisPointers;
+				SKeeper() = default;
 
 			public:
-				SKeeper() = default;
 				SKeeper(const SKeeper&) = delete;
 				SKeeper& operator=(const SKeeper&) = delete;
 
@@ -224,37 +242,21 @@ private:
 					_thisPointers[this_thread::get_id()] = pThis;
 				}
 
-				TMethod origMethod()
-				{
-					return _pOrigM;
-				}
-
-				void setOrigMethod(const TMethod origMethod)
-				{
-					_pOrigM = origMethod;
-				}
-
-				typename HelpTypes<TMethod>::TDetour detour()
-				{
-					return _detour;
-				}
-
-				void setDetour(const typename HelpTypes<TMethod>::TDetour detour)
-				{
-					_detour = detour;
-				}
-
-				static SKeeper& getInstance()
-				{
-					static SKeeper s;
-					return s;
-				}
+				TMethod pOrigM;
+				typename HelpTypes<TMethod>::TDetour detour;
+				atomic_uint threadCounter;
 			};
+			
+			static SKeeper& getKeeper()
+			{
+				static SKeeper *_keeper = new SKeeper();
+				return *_keeper;
+			}
 
 			TRet invokeOriginal(TArgs...Args)
 			{
-				auto &pt = SKeeper::getInstance();
-				return (pt.thisPtr()->*(pt.origMethod()))(forward<TArgs>(Args)...);  //Thread unsafe..
+				auto &sk = getKeeper();
+				return (sk.thisPtr()->*(sk.pOrigM))(forward<TArgs>(Args)...);
 			}
 
 			TRet __cdecl invokeOriginalCDECL(TArgs...Args)
@@ -267,24 +269,52 @@ private:
 				return invokeOriginal(forward<TArgs>(Args)...);
 			}
 
+
 			TRet __thiscall invokeDetour(TArgs...Args) //Can't be static because of __thiscall
 			{
-				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				auto &sk = getKeeper();
+				sk.threadCounter++;
+				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				sk.threadCounter--;
+				return ret;
 			}
 			TRet __cdecl invokeDetourCDECL(TArgs...Args)
 			{
-				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				auto &sk = getKeeper();
+				sk.threadCounter++;
+				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				sk.threadCounter--;
+				return ret;
 			}
 			TRet __fastcall invokeDetourFASTCALL(TArgs...Args)
 			{
-				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				auto &sk = getKeeper();
+				sk.threadCounter++;
+				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				sk.threadCounter--;
+				return ret;
 			}
 			TRet __stdcall invokeDetourSTDCALL(TArgs...Args)
 			{
-				return SKeeper::getInstance().detour()((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				auto &sk = getKeeper();
+				sk.threadCounter++;
+				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
+				sk.threadCounter--;
+				return ret;
 			}
 
-			typename LPVOID detourProxyAddr()
+			void safeCleanup()
+			{
+				MH_DisableHook(_targetMethod);
+				auto &sk = getKeeper();
+				while(sk.threadCounter > 0)
+				{
+					this_thread::sleep_for(chrono::milliseconds(10));
+				}
+				MH_RemoveHook(_targetMethod);
+			}
+
+			LPVOID detourProxyAddr()
 			{
 				auto detourInvoker = &CProxyObject::invokeDetour;
 				auto detourInvokerCDECL = &CProxyObject::invokeDetourCDECL;
@@ -314,7 +344,7 @@ private:
 	public:
 		TProxyObject& object(typename HelpTypes<TMethod>::TObject *pThis)
 		{
-			auto &sk = TProxyObject::SKeeper::getInstance();
+			auto &sk = TProxyObject::getKeeper();
 			sk.setThis(pThis);
 			return _proxyObject;
 		}
@@ -329,19 +359,13 @@ private:
 
 	unordered_map<LPVOID, CHook*> _hooks;
 
-	void removeHooks()
-	{
-		for(auto &x : _hooks)
-		{
-			MH_RemoveHook(x.first);
-			delete x.second;
-		}
-	}
-
 public:
 	~CMinHookEx()
 	{
-		removeHooks();
+		for(auto &x : _hooks)
+		{
+			x.second->deleteLater();
+		}
 	}
 
 	static CMinHookEx& getInstance()
