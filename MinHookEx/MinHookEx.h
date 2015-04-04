@@ -15,248 +15,376 @@
 
 using namespace std;
 
-class CMinHookEx
+namespace MinHookEx
 {
-private:
-	class CHook
+	class CMinHookEx;
+	namespace internal
 	{
-		friend class CMinHookEx;
-	protected:
-		LPVOID _pfnTarget;
+		template<typename X> struct SMethodHookUID;
+		template<typename X> struct SFunctionHookUID;
 
-		CHook(LPVOID pfnTarget) : _pfnTarget(pfnTarget)
-		{}
+		template<typename X> SMethodHookUID<X> htMethod(X);
+		template<typename X> SFunctionHookUID<X> htFunction(X);
+		using MinHookEx::CMinHookEx;
 
-		CHook() : CHook(nullptr)
-		{};
-
-		virtual void deleteLater() = 0;		
-
-	public:
-
-		void enable() const
+		template<typename X> struct SMethodHookUID
 		{
-			MH_EnableHook(_pfnTarget);
+		public:
+			SMethodHookUID(const SMethodHookUID&) = default;
+			SMethodHookUID() = default;
+			SMethodHookUID& operator=(const SMethodHookUID&) = delete;
+		};
+
+		template<typename X> struct SFunctionHookUID
+		{
+		public:
+			SFunctionHookUID(const SFunctionHookUID&) = default;
+			SFunctionHookUID() = default;
+			SFunctionHookUID& operator=(const SFunctionHookUID&) = delete;
+		};
+
+		template<typename X> SMethodHookUID<X> htMethod(X x)
+		{
+			return SMethodHookUID<X>();
 		}
-		void disable() const
+
+		template<typename X> SFunctionHookUID<X> htFunction(X x)
 		{
-			MH_DisableHook(_pfnTarget);
+			return SFunctionHookUID<X>();
 		}
 	};
 
-	//------------------------HELPERS-----------------------
+#define MethodHookUID internal::htMethod([](){})
+#define FunctionHookUID internal::htFunction([](){})
+
+	class CMinHookEx
+	{
+	private:
+		//------------------------HELPERS-----------------------
 #include "Inner/VTableIndex.h"
 
-	template<typename TObj, typename TRet, typename ...TArgs> struct SFunc
-	{
-		using TFunc = TRet(*)(TArgs...);
-	};
-
-	template<typename TObj, typename TRet, typename ...TArgs> struct SFuncSTD : public SFunc < TObj, TRet, TArgs... >
-	{
-		using TDetour = TRet(__stdcall *)(TObj* pVoid, TArgs...);
-	};
-
-	template<typename TObj, typename TRet, typename ...TArgs> struct SFuncCDECL : public SFunc < TObj, TRet, TArgs... >
-	{
-		using TDetour = TRet(__cdecl *)(TObj* pVoid, TArgs...);
-	};
-
-	template<typename TObj, typename TRet, typename ...TArgs> struct SFuncFASTCALL : public SFunc < TObj, TRet, TArgs... >
-	{
-		using TDetour = TRet(__fastcall *)(TObj* pVoid, TArgs...);
-	};
-
-	template<typename TObj, typename TRet, typename ...TArgs>
-	static SFuncCDECL<TObj, TRet, TArgs...> funcStripper(TRet(__thiscall TObj::*)(TArgs...))
-	{}
-
-	template<typename TObj, typename TRet, typename ...TArgs>
-	static SFuncSTD<TObj, TRet, TArgs...> funcStripper(TRet(__stdcall TObj::*)(TArgs...))
-	{}
-
-	template<typename TObj, typename TRet, typename ...TArgs>
-	static SFuncCDECL<TObj, TRet, TArgs...> funcStripper(TRet(__cdecl TObj::*)(TArgs...))
-	{}
-
-	template<typename TObj, typename TRet, typename ...TArgs>
-	static SFuncFASTCALL<TObj, TRet, TArgs...> funcStripper(TRet(__fastcall TObj::*)(TArgs...))
-	{}
-
-	template<typename TOrigF, typename TObj> struct SMethodPartsH
-	{
-		using TOrigFunction = TOrigF;
-		using TObject = TObj;
-		using TFS = decltype(funcStripper<TObj>(declval<TOrigF TObject::*>()));
-		using TFunc = typename TFS::TFunc;
-		using TDetour = typename TFS::TDetour;
-	};
-
-	template<typename TObj, typename TRet, typename ...TArgs>
-	static SMethodPartsH<TRet __cdecl(TArgs...), TObj> getMethodParts(TRet(__cdecl TObj::*)(TArgs...)) //fallback for __cdecl methods
-	{}																							//no IntelliSense support
-
-	template<typename TOrigFunc, typename TObj>
-	static SMethodPartsH<TOrigFunc, TObj> getMethodParts(TOrigFunc TObj::*) //WORKS!
-	{}
-
-	template<typename TMethod> struct HelpTypes
-	{
-	private:
-		using TParts = decltype(getMethodParts(declval<TMethod>()));
-	public:
-		using TOrigFunc = typename TParts::TOrigFunction;
-		using TObject = typename TParts::TObject;
-		using TFunc = typename TParts::TFunc;
-		using TDetour = typename TParts::TDetour;
-
-		template<bool condition, typename TTrueType, typename TFalseType>
-		struct ConditionalType
-		{};
-
-		template<typename TTrueType, typename TFalseType>
-		struct ConditionalType < true, TTrueType, TFalseType >
+		template<typename TObj, typename TRet, typename ...TArgs> struct SFuncSTD
 		{
-			using Type = TTrueType;
+			using TDetour = TRet(__stdcall *)(TObj* pVoid, TArgs...);
 		};
 
-		template<typename TTrueType, typename TFalseType>
-		struct ConditionalType < false, TTrueType, TFalseType >
+		template<typename TObj, typename TRet, typename ...TArgs> struct SFuncCDECL
 		{
-			using Type = TFalseType;
+			using TDetour = TRet(__cdecl *)(TObj* pVoid, TArgs...);
 		};
 
-		template<typename TTrueType, typename TFirstValue>
-		static TTrueType conditionalValue(TFirstValue val1)
+		template<typename TObj, typename TRet, typename ...TArgs> struct SFuncFASTCALL
 		{
-			return (TTrueType)val1;
-		}
+			using TDetour = TRet(__fastcall *)(TObj* pVoid, TArgs...);
+		};
 
-		template<typename TTrueType, typename TFirstValue, typename ...TValues> //Unfinished. Needs specialization for the case when no values of TTrueType provided.
-		static TTrueType conditionalValue(TFirstValue val1, TValues...Values)
+		template<typename TObj, typename TRet, typename ...TArgs>
+		static SFuncCDECL<TObj, TRet, TArgs...> funcStripper(TRet(__thiscall TObj::*)(TArgs...)) //return type is correct!
+		{}
+
+		template<typename TObj, typename TRet, typename ...TArgs>
+		static SFuncSTD<TObj, TRet, TArgs...> funcStripper(TRet(__stdcall TObj::*)(TArgs...))
+		{}
+
+		template<typename TObj, typename TRet, typename ...TArgs>
+		static SFuncCDECL<TObj, TRet, TArgs...> funcStripper(TRet(__cdecl TObj::*)(TArgs...))
+		{}
+
+		template<typename TObj, typename TRet, typename ...TArgs>
+		static SFuncFASTCALL<TObj, TRet, TArgs...> funcStripper(TRet(__fastcall TObj::*)(TArgs...))
+		{}
+
+		template<typename TOrigF, typename TObj> struct SMethodPartsH
 		{
-			return is_same<TTrueType, TFirstValue>::value ? (TTrueType)val1 : (TTrueType)conditionalValue<TTrueType>(forward<TValues>(Values)...);
-		}
+			using TOrigFunction = TOrigF;
+			using TObject = TObj;
+			using TFS = decltype(funcStripper<TObj>(declval<TOrigF TObject::*>()));
+			using TDetour = typename TFS::TDetour;
+		};
 
-	};
+		template<typename TOrigFunc, typename TObj>
+		static SMethodPartsH<TOrigFunc, TObj> getMethodParts(TOrigFunc TObj::*) //WORKS!
+		{}
 
-	//---------------------------------------------------------------------------
+		template<typename TRet, typename TObj, typename ...TArgs>
+		static SMethodPartsH<TRet __cdecl (TArgs...), TObj> getMethodParts(TRet (__cdecl TObj::*)(TArgs...)) //WORKS!
+		{}
 
-	template<typename TFunc> class CFunctionHook : public CHook
-	{
-		friend class CMinHookEx;
-	private:
-		CFunctionHook(LPVOID pfnTarget, LPVOID pfnOriginal) : CHook(pfnTarget), originalFunc((TFunc*)pfnOriginal)
-		{};
 
-		virtual ~CFunctionHook()
+		template<typename TMethod> struct HelpTypes
 		{
-			MH_RemoveHook(_pfnTarget);
-		}
-
-		virtual void deleteLater() override
-		{
-			delete this;
-		}
-
-	public:
-		TFunc* const originalFunc;
-	};
-
-	//-------------------------------------------------------------------------
-	template<typename TMethod>
-	class CMethodHook : public CHook
-	{
-		friend class CMinHookEx;
-
-	private:
-		CMethodHook(LPVOID pfnTarget, typename HelpTypes<TMethod>::TDetour detour) : CHook(pfnTarget), _proxyObject(pfnTarget, detour)
-		{};
-
-		virtual void deleteLater() override
-		{
-			_proxyObject.safeCleanup();
-			delete this;
-		}
-
-		//------------------------------------------------------------------------
-		template<typename TRet, typename ...TArgs>
-		class CProxyObject
-		{
-			friend class CMethodHook < TMethod > ;
 		private:
-			using TCDECLInvoker = TRet(__cdecl CProxyObject::*)(TArgs...);
-			using TInvoker = TRet(CProxyObject::*)(TArgs...);
-			using TFASTCALLInvoker = TRet(__fastcall CProxyObject::*)(TArgs...);
+			using TParts = decltype(getMethodParts(declval<TMethod>()));
+		public:
+			using TOrigFunc = typename TParts::TOrigFunction;
+			using TObject = typename TParts::TObject;
+			using TDetour = typename TParts::TDetour;
+		};
 
-			using TTCorCDECL = typename HelpTypes<TMethod>::ConditionalType<is_same<typename HelpTypes<TMethod>::TOrigFunc, TRet __cdecl (TArgs...)>::value, TCDECLInvoker, TInvoker>::Type;
+		//---------------------------------------------------------------------------
 
-			using TInvokerType = typename HelpTypes<TMethod>::ConditionalType < is_same<typename HelpTypes<TMethod>::TOrigFunc, TRet __fastcall (TArgs...)>::value,
-				TFASTCALLInvoker, TTCorCDECL > ::Type;
+		class CHook
+		{
+			friend class CMinHookEx;
+		protected:
+			LPVOID _pfnTarget;
+			bool _bHookValid = false;
 
-			TMethod _originalMethod;
-			LPVOID _targetMethod;
+			struct SCounter
+			{
+				atomic_uint &_i;
+				SCounter(atomic_uint &i) : _i(i)
+				{
+					_i++;
+				}
+				~SCounter()
+				{
+					_i--;
+				}
+			};
 
-			CProxyObject(LPVOID target, typename HelpTypes<TMethod>::TDetour detour,
-				TInvokerType invoker = HelpTypes<TMethod>::conditionalValue<TInvokerType>(&CProxyObject::invokeOriginalCDECL, &CProxyObject::invokeOriginal, &CProxyObject::invokeOriginalFASTCALL))
-				: _targetMethod(target),
-					originalMethod((HelpTypes<TMethod>::TOrigFunc*&)invoker) //second arg here to make originalmethod CONST
+			CHook(LPVOID pfnTarget) : _pfnTarget(pfnTarget)
+			{}
+
+			CHook() : CHook(nullptr)
+			{};
+
+			CHook(const CHook&) = delete;
+			CHook& operator=(const CHook&) = delete;
+
+			virtual ~CHook()
+			{};
+
+		public:
+
+			bool enable() const
+			{
+				return _bHookValid && (MH_EnableHook(_pfnTarget) == MH_OK);
+			}
+			bool disable() const
+			{
+				return _bHookValid && (MH_DisableHook(_pfnTarget) == MH_OK);
+			}
+		};
+
+		template<typename TFunc> class CFunctionHook : public CHook
+		{
+			friend class CMinHookEx;
+
+		private:
+			CFunctionHook(const CFunctionHook&) = delete;
+			CFunctionHook& operator=(const CFunctionHook&) = delete;
+		protected:
+			CFunctionHook(LPVOID target) : CHook(target)
+			{}
+		public:
+			TFunc* const originalFunc = 0;
+		};
+
+		template<typename X, typename TFunc, typename TRet, typename ...TArgs>
+		class CFunctionHookSpec : private CFunctionHook < TFunc >
+		{
+			friend CMinHookEx;
+		private:
+			struct SThisKeeper
+			{
+				friend class CFunctionHookSpec;
+			private:
+				SThisKeeper() = default;
+				SThisKeeper(const SThisKeeper&) = delete;
+				SThisKeeper& operator=(const SThisKeeper&) = delete;
+				static SThisKeeper* getInstance()
+				{
+					static SThisKeeper* inst = new SThisKeeper();
+					return inst;
+				}
+
+				CFunctionHookSpec* _pThis;
+			};
+
+			TFunc *_detour;
+			TFunc *_originalFunc;
+			atomic_uint threadCounter;
+
+
+			static TRet __stdcall invokeOriginal(TArgs...Args)
+			{
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				return pThis->_originalFunc(forward<TArgs>(Args)...);
+			}
+
+			static TRet __cdecl invokeOriginalCDECL(TArgs...Args)
+			{
+				return invokeOriginal(forward<TArgs>(Args)...);
+			}
+
+			static TRet __fastcall invokeOriginalFASTCALL(TArgs...Args)
+			{
+				return invokeOriginal(forward<TArgs>(Args)...);
+			}
+
+			static TRet __cdecl invokeDetourCDECL(TArgs...Args)
+			{
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				SCounter c(pThis->threadCounter);
+				return pThis->_detour(forward<TArgs>(Args)...);
+			}
+
+			static TRet __fastcall invokeDetourFASTCALL(TArgs...Args)
+			{
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				SCounter c(pThis->threadCounter);
+				return pThis->_detour(forward<TArgs>(Args)...);
+			}
+
+			static TRet __stdcall invokeDetourSTDCALL(TArgs...Args)
+			{
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				SCounter c(pThis->threadCounter);
+				return pThis->_detour(forward<TArgs>(Args)...);
+			}
+
+			LPVOID detourProxyAddr()
+			{
+				auto detourInvokerCDECL = &CFunctionHookSpec::invokeDetourCDECL;
+				auto detourInvokerFASTCALL = &CFunctionHookSpec::invokeDetourFASTCALL;
+				auto detourInvokerSTDCALL = &CFunctionHookSpec::invokeDetourSTDCALL;
+
+				return is_same<TFunc, TRet __stdcall (TArgs...)>::value ?
+					(LPVOID*&)detourInvokerSTDCALL :
+					is_same<TFunc, TRet __fastcall (TArgs...)>::value ?
+					(LPVOID*&)detourInvokerFASTCALL : (LPVOID*&)detourInvokerCDECL;
+			}
+
+			TFunc* originalFuncInvokerAddr()
+			{
+				auto originalInvokerSTDCALL = &CFunctionHookSpec::invokeOriginal;
+				auto originalInvokerCDECL = &CFunctionHookSpec::invokeOriginalCDECL;
+				auto originalInvokerFASTCALL = &CFunctionHookSpec::invokeOriginalFASTCALL;
+
+				return is_same<TFunc, TRet __fastcall (TArgs...)>::value ?
+					(TFunc*&)originalInvokerFASTCALL :
+					is_same<TFunc, TRet __cdecl (TArgs...)>::value ?
+					(TFunc*&)originalInvokerCDECL : (TFunc*&)originalInvokerSTDCALL;
+			}
+
+			CFunctionHookSpec(TFunc *target, TFunc *detour) : CFunctionHook(target), _detour(detour)
 			{
 				LPVOID _pfnOriginal;
 
-				MH_CreateHook(_targetMethod, detourProxyAddr(), &_pfnOriginal);
-				
-				auto &sk = getKeeper();
-				
-				sk.detour = detour;
-				sk.pOrigM = *(TMethod *)&_pfnOriginal; //Used to call unhooked method via invoker
-				sk.threadCounter = 0;
+				auto detourInvoker = detourProxyAddr();
+
+				_bHookValid = MH_CreateHook(target, (LPVOID*&)detourInvoker, &_pfnOriginal) == MH_OK;
+
+				_originalFunc = _bHookValid ? (TFunc*)_pfnOriginal : (TFunc*)target; //Used to call unhooked method via invoker
+
+				SThisKeeper::getInstance()->_pThis = this;
+				const_cast<TFunc*>(originalFunc) = originalFuncInvokerAddr();
+				threadCounter = 0;
 			}
 
-			~CProxyObject()
+			virtual ~CFunctionHookSpec()
 			{
-				delete &getKeeper();
+				MH_DisableHook(_pfnTarget);
+				while(threadCounter > 0)
+				{
+					this_thread::sleep_for(chrono::milliseconds(10));
+				}
+				delete SThisKeeper::getInstance();
+				MH_RemoveHook(_pfnTarget);
 			}
+		};
 
-			CProxyObject(const CProxyObject&) = delete;
-			CProxyObject& operator=(const CProxyObject&) = delete;
+		//-------------------------------------------------------------------------
+		template<typename TMethod>
+		class CMethodHook : public CHook
+		{
+		private:
+			virtual void setObjectThisPtr(typename HelpTypes<TMethod>::TObject* pThis) = 0;
 
-			struct SKeeper
+			CMethodHook(const CMethodHook&) = delete;
+			CMethodHook& operator=(const CMethodHook&) = delete;
+
+		protected:
+
+			CMethodHook(LPVOID target) : CHook(target)
+			{}
+
+			struct SProxyObject
 			{
-				friend class CMethodHook;
+				friend CMethodHook;
 			private:
-				unordered_map<thread::id, typename HelpTypes<TMethod>::TObject*> _thisPointers;
-				SKeeper() = default;
+				SProxyObject(typename HelpTypes<TMethod>::TOrigFunc* origMethod) : originalMethod(origMethod)
+				{}
+				SProxyObject(const SProxyObject&) = delete;
+				SProxyObject& operator=(const SProxyObject&) = delete;
 
 			public:
-				SKeeper(const SKeeper&) = delete;
-				SKeeper& operator=(const SKeeper&) = delete;
+				typename HelpTypes<TMethod>::TOrigFunc* const originalMethod; //user interface; calls proxyObject's invoker; if we would have a method pointer here we'd get ugly method-by-pointer call syntax
+			} *_proxyObject;
 
-				typename HelpTypes<TMethod>::TObject* thisPtr()
-				{
-					return _thisPointers[this_thread::get_id()];
-				}
-
-				void setThis(typename HelpTypes<TMethod>::TObject* pThis)
-				{
-					_thisPointers[this_thread::get_id()] = pThis;
-				}
-
-				TMethod pOrigM;
-				typename HelpTypes<TMethod>::TDetour detour;
-				atomic_uint threadCounter;
-			};
-			
-			static SKeeper& getKeeper()
+			void initProxyObject(typename HelpTypes<TMethod>::TOrigFunc* origMethod)
 			{
-				static SKeeper *_keeper = new SKeeper();
-				return *_keeper;
+				_proxyObject = new SProxyObject(origMethod);
 			}
+
+			virtual ~CMethodHook()
+			{
+				delete _proxyObject;
+			}
+
+		public:
+			SProxyObject& object(typename HelpTypes<TMethod>::TObject *pThis)
+			{
+				setObjectThisPtr(pThis);
+				return *_proxyObject;
+			}
+
+		};
+
+		template<typename X, typename TMethod, typename TRet, typename TObject, typename ...TArgs>
+		class CMethodHookSpec : private CMethodHook < TMethod >
+		{
+			friend class CMinHookEx;
+
+		private:
+			unordered_map<thread::id, TObject*> _thisPointers;
+
+			struct SThisKeeper
+			{
+				friend class CMethodHookSpec;
+			private:
+				SThisKeeper() = default;
+				SThisKeeper(const SThisKeeper&) = delete;
+				SThisKeeper& operator=(const SThisKeeper&) = delete;
+				static SThisKeeper* getInstance()
+				{
+					static SThisKeeper* inst = new SThisKeeper();
+					return inst;
+				}
+
+				CMethodHookSpec* _pThis;
+			};
+
+			TObject* objectThisPtr()
+			{
+				return _thisPointers[this_thread::get_id()];
+			}
+
+			virtual void setObjectThisPtr(TObject* pThis) override
+			{
+				_thisPointers[this_thread::get_id()] = pThis;
+			}
+
+			TMethod _originalMethod;
+			typename HelpTypes<TMethod>::TDetour _detour;
+
+			atomic_uint threadCounter;
 
 			TRet invokeOriginal(TArgs...Args)
 			{
-				auto &sk = getKeeper();
-				return (sk.thisPtr()->*(sk.pOrigM))(forward<TArgs>(Args)...);
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				return (pThis->objectThisPtr()->*(pThis->_originalMethod))(forward<TArgs>(Args)...);
 			}
 
 			TRet __cdecl invokeOriginalCDECL(TArgs...Args)
@@ -269,157 +397,221 @@ private:
 				return invokeOriginal(forward<TArgs>(Args)...);
 			}
 
-
 			TRet __thiscall invokeDetour(TArgs...Args) //Can't be static because of __thiscall
 			{
-				auto &sk = getKeeper();
-				sk.threadCounter++;
-				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
-				sk.threadCounter--;
-				return ret;
-			}
-			TRet __cdecl invokeDetourCDECL(TArgs...Args)
-			{
-				auto &sk = getKeeper();
-				sk.threadCounter++;
-				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
-				sk.threadCounter--;
-				return ret;
-			}
-			TRet __fastcall invokeDetourFASTCALL(TArgs...Args)
-			{
-				auto &sk = getKeeper();
-				sk.threadCounter++;
-				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
-				sk.threadCounter--;
-				return ret;
-			}
-			TRet __stdcall invokeDetourSTDCALL(TArgs...Args)
-			{
-				auto &sk = getKeeper();
-				sk.threadCounter++;
-				auto ret = sk.detour((HelpTypes<TMethod>::TObject*)this, forward<TArgs>(Args)...);
-				sk.threadCounter--;
-				return ret;
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				SCounter c(pThis->threadCounter);
+				return pThis->_detour((TObject*)this, forward<TArgs>(Args)...);
 			}
 
-			void safeCleanup()
+			TRet __cdecl invokeDetourCDECL(TArgs...Args)
 			{
-				MH_DisableHook(_targetMethod);
-				auto &sk = getKeeper();
-				while(sk.threadCounter > 0)
-				{
-					this_thread::sleep_for(chrono::milliseconds(10));
-				}
-				MH_RemoveHook(_targetMethod);
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				SCounter c(pThis->threadCounter);
+				return pThis->_detour((TObject*)this, forward<TArgs>(Args)...);
+			}
+
+			TRet __fastcall invokeDetourFASTCALL(TArgs...Args)
+			{
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				SCounter c(pThis->threadCounter);
+				return pThis->_detour((TObject*)this, forward<TArgs>(Args)...);
+			}
+
+			TRet __stdcall invokeDetourSTDCALL(TArgs...Args)
+			{
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				SCounter c(pThis->threadCounter);
+				return pThis->_detour((TObject*)this, forward<TArgs>(Args)...);
 			}
 
 			LPVOID detourProxyAddr()
 			{
-				auto detourInvoker = &CProxyObject::invokeDetour;
-				auto detourInvokerCDECL = &CProxyObject::invokeDetourCDECL;
-				auto detourInvokerFASTCALL = &CProxyObject::invokeDetourFASTCALL;
-				auto detourInvokerSTDCALL = &CProxyObject::invokeDetourSTDCALL;
-
-				using TO = typename HelpTypes<TMethod>::TObject;
-
-				return is_same<TMethod, TRet(__stdcall TO::*)(TArgs...)>::value ? (LPVOID*&)detourInvokerSTDCALL :
-					is_same<TMethod, TRet(__fastcall TO::*)(TArgs...)>::value ? (LPVOID*&)detourInvokerFASTCALL :
-					is_same<TMethod, TRet(__cdecl TO::*)(TArgs...)>::value ? (LPVOID*&)detourInvokerCDECL :
-					(LPVOID*&)detourInvoker;
+				auto detourInvoker = &CMethodHookSpec::invokeDetour;
+				auto detourInvokerCDECL = &CMethodHookSpec::invokeDetourCDECL;
+				auto detourInvokerFASTCALL = &CMethodHookSpec::invokeDetourFASTCALL;
+				auto detourInvokerSTDCALL = &CMethodHookSpec::invokeDetourSTDCALL;
+				
+				return is_same<TMethod, TRet(__stdcall TObject::*)(TArgs...)>::value ?
+					(LPVOID*&)detourInvokerSTDCALL :
+					is_same<TMethod, TRet(__fastcall TObject::*)(TArgs...)>::value ?
+					(LPVOID*&)detourInvokerFASTCALL :
+					is_same<TMethod, TRet(__cdecl TObject::*)(TArgs...)>::value ?
+					(LPVOID*&)detourInvokerCDECL : (LPVOID*&)detourInvoker;
 			}
 
-		public:
-			typename HelpTypes<TMethod>::TOrigFunc* const originalMethod; //user interface; calls proxyObject's invoker
+			using TOrigFunc = typename HelpTypes<TMethod>::TOrigFunc;
+
+			TOrigFunc* originalMethodInvokerAddr()
+			{
+				auto originalInvoker = &CMethodHookSpec::invokeOriginal;
+				auto originalInvokerCDECL = &CMethodHookSpec::invokeOriginalCDECL;
+				auto originalInvokerFASTCALL = &CMethodHookSpec::invokeOriginalFASTCALL;
+
+				return is_same<TOrigFunc, TRet __fastcall (TArgs...)>::value ?
+					(TOrigFunc*&)originalInvokerFASTCALL :
+					is_same<TOrigFunc, TRet __cdecl (TArgs...)>::value ?
+					(TOrigFunc*&)originalInvokerCDECL : (TOrigFunc*&)originalInvoker;
+			}
+
+			CMethodHookSpec(LPVOID target, typename HelpTypes<TMethod>::TDetour detour) : CMethodHook(target),
+				_detour(detour)
+			{
+				LPVOID _pfnOriginal;
+				auto detourInvoker = detourProxyAddr();
+
+				_bHookValid = MH_CreateHook(target, (LPVOID*&)detourInvoker, &_pfnOriginal) == MH_OK;
+
+				_originalMethod = _bHookValid ? *(TMethod*)&_pfnOriginal : *(TMethod*)&target; //Used to call unhooked method via invoker
+
+				SThisKeeper::getInstance()->_pThis = this;
+
+				initProxyObject(originalMethodInvokerAddr());
+				threadCounter = 0;
+			};
+
+			virtual ~CMethodHookSpec()
+			{
+				MH_DisableHook(_pfnTarget);
+				while(threadCounter > 0)
+				{
+					this_thread::sleep_for(chrono::milliseconds(10));
+				}
+				delete SThisKeeper::getInstance();
+				MH_RemoveHook(_pfnTarget);
+			}
+			//------------------------------------------------------------------------
 		};
 
-		template<typename TRet, typename ...TArgs>
-		static CProxyObject<TRet, TArgs...> proxyObjectH(TRet(TArgs...))
+		CMinHookEx()
+		{
+			MH_Initialize();
+		}
+		CMinHookEx(const CMinHookEx&) = delete;
+		CMinHookEx& operator=(const CMinHookEx&) = delete;
+
+		unordered_map<LPVOID, CHook*> _hooks;
+
+		template <typename X, typename TMethod, typename TRet, typename TObject, typename ...TArgs>
+		CMethodHookSpec<X, TMethod, TRet, TObject, TArgs...>
+			CMethodHookSpecH(TRet(TObject::*)(TArgs...))
 		{}
 
-		using TProxyObject = decltype(proxyObjectH(declval<HelpTypes<TMethod>::TFunc>()));
+		template <typename X, typename TMethod, typename TRet, typename TObject, typename ...TArgs>
+		CMethodHookSpec<X, TMethod, TRet, TObject, TArgs...>
+			CMethodHookSpecH(TRet(__cdecl TObject::*)(TArgs...))
+		{}
 
-		TProxyObject _proxyObject;
+		template <typename X, typename TMethod, typename TRet, typename TObject, typename ...TArgs>
+		CMethodHookSpec<X, TMethod, TRet, TObject, TArgs...>
+			CMethodHookSpecH(TRet(__stdcall TObject::*)(TArgs...))
+		{}
+
+		template <typename X, typename TMethod, typename TRet, typename TObject, typename ...TArgs>
+		CMethodHookSpec<X, TMethod, TRet, TObject, TArgs...>
+			CMethodHookSpecH(TRet(__fastcall TObject::*)(TArgs...))
+		{}
+
+		template <typename X, typename TFunc, typename TRet, typename ...TArgs>
+		CFunctionHookSpec<X, TFunc, TRet, TArgs...>
+			CFunctionHookSpecH(TRet(__cdecl *)(TArgs...))
+		{}
+
+		template <typename X, typename TFunc, typename TRet, typename ...TArgs>
+		CFunctionHookSpec<X, TFunc, TRet, TArgs...>
+			CFunctionHookSpecH(TRet(__stdcall*)(TArgs...))
+		{}
+
+		template <typename X, typename TFunc, typename TRet, typename ...TArgs>
+		CFunctionHookSpec<X, TFunc, TRet, TArgs...>
+			CFunctionHookSpecH(TRet(__fastcall*)(TArgs...))
+		{}
+
+		bool hookExists(LPVOID target)
+		{
+			return _hooks.find(target) != _hooks.end();
+		}
 
 	public:
-		TProxyObject& object(typename HelpTypes<TMethod>::TObject *pThis)
+		~CMinHookEx()
 		{
-			auto &sk = TProxyObject::getKeeper();
-			sk.setThis(pThis);
-			return _proxyObject;
+			for(auto &x : _hooks)
+			{
+				delete x.second;
+			}
+		}
+
+		static CMinHookEx& getInstance()
+		{
+			static CMinHookEx instance;
+
+			return instance;
+		}
+
+		template<typename X, typename TMethod>
+		CMethodHook<TMethod>& add(internal::SMethodHookUID<X> methodHookUID, TMethod target, typename HelpTypes<TMethod>::TDetour detour)
+		{
+			static bool bUsed = false;
+			if(bUsed) throw(invalid_argument("Invalid hook UID, use MethodHook or FunctionHook macros"));
+			bUsed = true;
+
+			if(hookExists((void*&)target))
+				delete _hooks.at((void*&)target);
+
+			using TMH = decltype(CMethodHookSpecH<X, TMethod>(declval<TMethod>()));
+			auto h = new TMH((LPVOID)(void*&)target, detour);
+			_hooks[(void*&)target] = h;
+			return *h;
+		}
+
+		template<typename X, typename TMethod>
+		CMethodHook<TMethod>& add(internal::SMethodHookUID<X> methodHookUID, TMethod target, typename HelpTypes<TMethod>::TObject *object, typename HelpTypes<TMethod>::TDetour detour)
+		{
+			static bool bUsed = false;
+			if(bUsed) throw(exception("Invalid hook UID, use MethodHook or FunctionHook macros"));
+			bUsed = true;
+
+			if(hookExists((void*&)target))
+				delete _hooks.at((void*&)target);
+
+			int vtblOffset = VTableIndex(target);
+			int *vtbl = (int*)*(int*)object;
+			LPVOID t = (LPVOID)vtbl[vtblOffset];
+			using TMH = decltype(CMethodHookSpecH<X, TMethod>(declval<TMethod>()));
+			auto h = new TMH(t, detour);
+
+			_hooks[(void*&)target] = h;
+
+			return *h;
+		}
+
+		template<typename X, typename TFunc>
+		CFunctionHook<TFunc>& add(internal::SFunctionHookUID<X> functionHookUID, TFunc* target, decltype(target) detour)
+		{
+			static bool bUsed = false;
+			if(bUsed) throw(exception("Invalid hook UID, use MethodHook or FunctionHook macros"));
+			bUsed = true;
+
+			if(hookExists(target))
+				delete _hooks.at(target);
+
+			using TMH = decltype(CFunctionHookSpecH<X, TFunc>(declval<TFunc*>()));
+			auto h = new TMH(target, detour);
+
+			_hooks[target] = h;
+			return *h;
+		}
+		
+		template<typename TFunc>
+		CFunctionHook<TFunc>* operator[](TFunc *target)
+		{
+			return (CFunctionHook<TFunc>*)_hooks[target];
+		}
+		
+		template<typename TMethod>
+		CMethodHook<TMethod>* operator[](TMethod target)
+		{
+			return (CMethodHook<TMethod>*)_hooks[(void*&)target];
 		}
 	};
-
-	CMinHookEx()
-	{
-		MH_Initialize();
-	}
-	CMinHookEx(const CMinHookEx&) = delete;
-	CMinHookEx& operator=(const CMinHookEx&) = delete;
-
-	unordered_map<LPVOID, CHook*> _hooks;
-
-public:
-	~CMinHookEx()
-	{
-		for(auto &x : _hooks)
-		{
-			x.second->deleteLater();
-		}
-	}
-
-	static CMinHookEx& getInstance()
-	{
-		static CMinHookEx instance;
-
-		return instance;
-	}
-
-	template<typename TMethod>
-	CMethodHook<TMethod>& methodHook(TMethod target, typename HelpTypes<TMethod>::TDetour detour)
-	{
-		auto h = new CMethodHook<TMethod>((LPVOID)(void*&)target, detour);
-
-		_hooks.insert(make_pair((void*&)target, h));
-
-		return *h;
-	}
-
-	template<typename TMethod>
-	CMethodHook<TMethod>& virtualMethodHook(TMethod target, typename HelpTypes<TMethod>::TObject *object, typename HelpTypes<TMethod>::TDetour detour)
-	{
-		int vtblOffset = VTableIndex(target);
-		int *vtbl = (int*)*(int*)object;
-		LPVOID t = (LPVOID)vtbl[vtblOffset];
-		auto h = new CMethodHook<TMethod>(t, detour);
-
-		_hooks.insert(make_pair((void*&)target, h));
-
-		return *h;
-	}
-
-	template<typename TFunc>
-	CFunctionHook<TFunc>& functionHook(TFunc* target, decltype(target) detour)
-	{
-		LPVOID p;
-
-		MH_CreateHook(target, detour, &p);
-		auto h = new CFunctionHook<TFunc>(target, p);
-
-		_hooks.insert(make_pair(target, h));
-
-		return *h;
-	}
-
-	template<typename TFunc>
-	CFunctionHook<TFunc>* operator[](TFunc *target)
-	{
-		return (CFunctionHook<TFunc>*)_hooks[(void*&)target];
-	}
-
-	template<typename TMethod>
-	CMethodHook<TMethod>* operator[](TMethod target)
-	{
-		return (CMethodHook<TMethod>*)_hooks[(void*&)target];
-	}
 };

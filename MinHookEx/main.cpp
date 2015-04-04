@@ -7,13 +7,14 @@
 
 
 using namespace std;
+using namespace MinHookEx;
 
 CMinHookEx &mh = CMinHookEx::getInstance();
 
 struct test
 {
 	int c = 1;
-	int testFunc(int a) 
+	int testFunc(int a)
 	{
 		cout << "I'm testFunc from testinner c = " << c << endl; return 1;
 	}
@@ -24,18 +25,18 @@ struct test2
 	int c = 2;
 	int _cdecl testFunc(int a)
 	{
-		cout << "I'm testFunc from test2 cdecl inner c = " <<c << endl; return 1;
+		cout << "I'm testFunc from test2 cdecl inner c = " << c << endl; return 1;
 	}
 };
 
 struct Base
 {
-	 virtual void m() = 0;
-/*
-	{
+	virtual void m() = 0;
+	/*
+		{
 		cout << "Base::m" << endl;
-	}
-*/
+		}
+		*/
 };
 
 struct Derived : Base
@@ -72,44 +73,65 @@ struct SShared
 	void changeDigit()
 	{
 		if(digit < 5000000)
-		digit++;
+			digit++;
 		else digit--;
+	}
+};
+
+struct STest
+{
+	int m1(int a)
+	{
+		cout << "m1" << endl;
+		return 0;
+	}
+	int __stdcall m2(int b)
+	{
+		cout << "m2" << endl;
+		return 0;
 	}
 };
 
 int main()
 {
 
+/*
 	MessageBeep(100);
 	Sleep(1000);
-	mh.functionHook(MessageBeep, [](UINT) {cout << "Hi from Beep" << endl; return TRUE; }).enable();
+	mh.add(FunctionHookUID, MessageBeep, [](UINT arg) {cout << "Hi from Beep(" << arg << ")" << endl; return TRUE; }).enable();
 	MessageBeep(100);
+
 	Sleep(1000);
 	mh[MessageBeep]->originalFunc(100);
 	Sleep(2000);
-
-	mh.functionHook(myTestFunc1, [](test *p, int b){cout << "hook for testfunc1: b=" << b << endl; return 0; }).enable();
-	mh.functionHook(myTestFunc2, [](test *p, int b){cout << "hook for testfunc2: b=" << b << endl; return 0; }).enable();
-	mh.functionHook(myTestFunc3, [](test *p, float b){cout << "hook for testfunc3: b=" << b << endl; return 0; }).enable();
-	mh.functionHook(myTestFunc4, [](test *p, int b){cout << "hook for testfunc4: b=" << b << endl; return 0; }).enable();
+*/
+	cout << mh.add(FunctionHookUID, myTestFunc1, [](test *p, int b){cout << "hook for testfunc1: b=" << b << endl; return 0; }).enable() << endl;
+/*
+	mh.add(FunctionHookUID, myTestFunc2, [](test *p, int b){cout << "hook for testfunc2: b=" << b << endl; return 0; }).enable();
+	mh.add(FunctionHookUID, myTestFunc3, [](test *p, float b){cout << "hook for testfunc3: b=" << b << endl; return 0; }).enable();
+	mh.add(FunctionHookUID, myTestFunc4, [](test *p, int b){cout << "hook for testfunc4: b=" << b << endl; return 0; }).enable();
+*/
 
 	myTestFunc1(0, 11);
+/*
 	myTestFunc2(0, 12);
 	myTestFunc3(0, 13);
 	myTestFunc4(0, 14);
+*/
 
 	mh[myTestFunc1]->originalFunc(0, 2);
+	/*
 	mh[myTestFunc4]->originalFunc(0, 3);
 
-	mh.methodHook(&test::testFunc, [](test *pThis, int a) 
+	mh.add(MethodHookUID, &test::testFunc, [](test *pThis, int a)
 	{
 		cout << "hook for test::testFunc, a = " << a << endl;
 		pThis->c = 100500;
-		CMinHookEx::getInstance()[&test::testFunc]->object(pThis).originalMethod(22);  
-		return 0; 
+		CMinHookEx::getInstance()[&test::testFunc]->object(pThis).originalMethod(22);
+		return 0;
 	}).enable();
 
-	mh.methodHook(&test2::testFunc, [](test2 *pThis, int a) {cout << "hook for test::testFunc, a = " << a << endl; pThis->c = 100500; return 0; }).enable();
+	mh.add(MethodHookUID, &test2::testFunc, [](test2 *pThis, int a) {cout << "hook for test::testFunc, a = " << a << endl; pThis->c = 100500; return 0; }).enable();
 
 	test t1;
 	test2 t2;
@@ -128,7 +150,7 @@ int main()
 
 	Base &b = Derived();
 
-	mh.virtualMethodHook(&Base::m, &b, [](Base *pVoid){ cout << endl << "hi from virtual detour" << endl; }).enable();
+	mh.add(MethodHookUID, &Base::m, &b, [](Base *pVoid){ cout << endl << "hi from virtual detour" << endl; }).enable();
 
 	b.m();
 
@@ -138,7 +160,7 @@ int main()
 
 	SShared shared1, shared2;
 
-	mh.methodHook(&SShared::changeDigit, [](SShared *pThis)
+	mh.add(MethodHookUID, &SShared::changeDigit, [](SShared *pThis)
 	{
 		CMinHookEx::getInstance()[&SShared::changeDigit]->object(pThis).originalMethod();
 	}).enable();
@@ -166,7 +188,17 @@ int main()
 
 	th1.join();
 	th2.join();
-	cout << "Test results: shared1.digit == " << shared1.digit << "; shared2.digit == " << shared2.digit << "; Time: " << GetTickCount()-tc;
-	Sleep(5000);
+	cout << "Test results: shared1.digit == " << shared1.digit << "; shared2.digit == " << shared2.digit << "; Time: " << GetTickCount() - tc << endl;
+
+	mh.add(MethodHookUID, &STest::m1, [](STest *t, int a){ cout << "interceptor m1" << endl; return 0; }).enable();
+	mh.add(MethodHookUID, &STest::m2, [](STest *t, int a){ cout << "interceptor m2" << endl; return 0; }).enable();
+	STest t;
+	t.m1(1);
+	t.m2(2);
+	mh[&STest::m1]->object(&t).originalMethod(2);
+	mh[&STest::m2]->object(&t).originalMethod(0);
+*/
+
+	Sleep(25000);
 	return 0;
 }
