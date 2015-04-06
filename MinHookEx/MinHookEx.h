@@ -132,7 +132,11 @@ namespace MinHookEx
 
 			struct SCounter
 			{
+			private:
 				atomic_uint &_i;
+				SCounter(const SCounter&) = delete;
+				SCounter& operator=(const SCounter&) = delete;
+			public:
 				SCounter(atomic_uint &i) : _i(i)
 				{
 					_i++;
@@ -144,13 +148,27 @@ namespace MinHookEx
 			};
 
 			CHook(LPVOID pfnTarget) : _pfnTarget(pfnTarget)
-			{}
+			{
+				threadCounter = 0;
+			}
 
 			CHook() : CHook(nullptr)
 			{};
 
 			CHook(const CHook&) = delete;
 			CHook& operator=(const CHook&) = delete;
+			atomic_uint threadCounter;
+
+			virtual void deleteLater()
+			{
+				MH_DisableHook(_pfnTarget);
+				while(threadCounter > 0)
+				{
+					this_thread::sleep_for(chrono::milliseconds(10));
+				}
+				MH_RemoveHook(_pfnTarget);
+				delete this;
+			}
 
 			virtual ~CHook()
 			{};
@@ -204,8 +222,6 @@ namespace MinHookEx
 
 			TFunc *_detour;
 			TFunc *_originalFunc;
-			atomic_uint threadCounter;
-
 
 			static TRet __stdcall invokeOriginal(TArgs...Args)
 			{
@@ -280,18 +296,11 @@ namespace MinHookEx
 
 				SThisKeeper::getInstance()->_pThis = this;
 				const_cast<TFunc*>(originalFunc) = originalFuncInvokerAddr();
-				threadCounter = 0;
 			}
 
 			virtual ~CFunctionHookSpec()
 			{
-				MH_DisableHook(_pfnTarget);
-				while(threadCounter > 0)
-				{
-					this_thread::sleep_for(chrono::milliseconds(10));
-				}
 				delete SThisKeeper::getInstance();
-				MH_RemoveHook(_pfnTarget);
 			}
 		};
 
@@ -379,8 +388,6 @@ namespace MinHookEx
 			TMethod _originalMethod;
 			typename HelpTypes<TMethod>::TDetour _detour;
 
-			atomic_uint threadCounter;
-
 			TRet invokeOriginal(TArgs...Args)
 			{
 				auto pThis = SThisKeeper::getInstance()->_pThis;
@@ -467,18 +474,11 @@ namespace MinHookEx
 				SThisKeeper::getInstance()->_pThis = this;
 
 				initProxyObject(originalMethodInvokerAddr());
-				threadCounter = 0;
 			};
 
 			virtual ~CMethodHookSpec()
 			{
-				MH_DisableHook(_pfnTarget);
-				while(threadCounter > 0)
-				{
-					this_thread::sleep_for(chrono::milliseconds(10));
-				}
 				delete SThisKeeper::getInstance();
-				MH_RemoveHook(_pfnTarget);
 			}
 			//------------------------------------------------------------------------
 		};
@@ -535,10 +535,16 @@ namespace MinHookEx
 	public:
 		~CMinHookEx()
 		{
+			removeAll();
+		}
+
+		void removeAll()
+		{
 			for(auto &x : _hooks)
 			{
-				delete x.second;
+				x.second->deleteLater();
 			}
+			_hooks.clear();
 		}
 
 		static CMinHookEx& getInstance()
@@ -556,7 +562,7 @@ namespace MinHookEx
 			bUsed = true;
 
 			if(hookExists((void*&)target))
-				delete _hooks.at((void*&)target);
+				_hooks.at((void*&)target)->deleteLater();
 
 			using TMH = decltype(CMethodHookSpecH<X, TMethod>(declval<TMethod>()));
 			auto h = new TMH((LPVOID)(void*&)target, detour);
@@ -572,7 +578,7 @@ namespace MinHookEx
 			bUsed = true;
 
 			if(hookExists((void*&)target))
-				delete _hooks.at((void*&)target);
+				_hooks.at((void*&)target)->deleteLater();
 
 			int vtblOffset = VTableIndex(target);
 			int *vtbl = (int*)*(int*)object;
@@ -593,7 +599,7 @@ namespace MinHookEx
 			bUsed = true;
 
 			if(hookExists(target))
-				delete _hooks.at(target);
+				_hooks.at(target)->deleteLater();
 
 			using TMH = decltype(CFunctionHookSpecH<X, TFunc>(declval<TFunc*>()));
 			auto h = new TMH(target, detour);
