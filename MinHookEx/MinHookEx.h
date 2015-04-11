@@ -223,7 +223,7 @@ namespace MinHookEx
 			TFunc *_detour;
 			TFunc *_originalFunc;
 
-			static TRet __stdcall invokeOriginal(TArgs...Args)
+			static TRet __stdcall invokeOriginalSTDCALL(TArgs...Args)
 			{
 				auto pThis = SThisKeeper::getInstance()->_pThis;
 				return pThis->_originalFunc(forward<TArgs>(Args)...);
@@ -231,12 +231,14 @@ namespace MinHookEx
 
 			static TRet __cdecl invokeOriginalCDECL(TArgs...Args)
 			{
-				return invokeOriginal(forward<TArgs>(Args)...);
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				return pThis->_originalFunc(forward<TArgs>(Args)...);
 			}
 
 			static TRet __fastcall invokeOriginalFASTCALL(TArgs...Args)
 			{
-				return invokeOriginal(forward<TArgs>(Args)...);
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				return pThis->_originalFunc(forward<TArgs>(Args)...);
 			}
 
 			static TRet __cdecl invokeDetourCDECL(TArgs...Args)
@@ -274,7 +276,7 @@ namespace MinHookEx
 
 			TFunc* originalFuncInvokerAddr()
 			{
-				auto originalInvokerSTDCALL = &CFunctionHookSpec::invokeOriginal;
+				auto originalInvokerSTDCALL = &CFunctionHookSpec::invokeOriginalSTDCALL;
 				auto originalInvokerCDECL = &CFunctionHookSpec::invokeOriginalCDECL;
 				auto originalInvokerFASTCALL = &CFunctionHookSpec::invokeOriginalFASTCALL;
 
@@ -329,7 +331,7 @@ namespace MinHookEx
 				SProxyObject& operator=(const SProxyObject&) = delete;
 
 			public:
-				typename HelpTypes<TMethod>::TOrigFunc* const originalMethod; //user interface; calls proxyObject's invoker; if we would have a method pointer here we'd get ugly method-by-pointer call syntax
+				typename HelpTypes<TMethod>::TOrigFunc* const originalMethod; //user interface; calls original method invoker; if we would have a method pointer here we'd get ugly method-by-pointer call syntax
 			} *_proxyObject;
 
 			void initProxyObject(typename HelpTypes<TMethod>::TOrigFunc* origMethod)
@@ -388,20 +390,22 @@ namespace MinHookEx
 			TMethod _originalMethod;
 			typename HelpTypes<TMethod>::TDetour _detour;
 
-			TRet invokeOriginal(TArgs...Args)
+			static TRet __stdcall invokeOriginalSTDCALL(TArgs...Args)
 			{
 				auto pThis = SThisKeeper::getInstance()->_pThis;
 				return (pThis->objectThisPtr()->*(pThis->_originalMethod))(forward<TArgs>(Args)...);
 			}
 
-			TRet __cdecl invokeOriginalCDECL(TArgs...Args)
+			static TRet __cdecl invokeOriginalCDECL(TArgs...Args)
 			{
-				return invokeOriginal(forward<TArgs>(Args)...);
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				return (pThis->objectThisPtr()->*(pThis->_originalMethod))(forward<TArgs>(Args)...);
 			}
 
-			TRet __fastcall invokeOriginalFASTCALL(TArgs...Args)
+			static TRet __fastcall invokeOriginalFASTCALL(TArgs...Args)
 			{
-				return invokeOriginal(forward<TArgs>(Args)...);
+				auto pThis = SThisKeeper::getInstance()->_pThis;
+				return (pThis->objectThisPtr()->*(pThis->_originalMethod))(forward<TArgs>(Args)...);
 			}
 
 			TRet __thiscall invokeDetour(TArgs...Args) //Can't be static because of __thiscall
@@ -415,6 +419,7 @@ namespace MinHookEx
 			{
 				auto pThis = SThisKeeper::getInstance()->_pThis;
 				SCounter c(pThis->threadCounter);
+
 				return pThis->_detour((TObject*)this, forward<TArgs>(Args)...);
 			}
 
@@ -451,14 +456,14 @@ namespace MinHookEx
 
 			TOrigFunc* originalMethodInvokerAddr()
 			{
-				auto originalInvoker = &CMethodHookSpec::invokeOriginal;
+				auto originalInvokerSTDCALL = &CMethodHookSpec::invokeOriginalSTDCALL;
 				auto originalInvokerCDECL = &CMethodHookSpec::invokeOriginalCDECL;
 				auto originalInvokerFASTCALL = &CMethodHookSpec::invokeOriginalFASTCALL;
 
 				return is_same<TOrigFunc, TRet __fastcall (TArgs...)>::value ?
 					(TOrigFunc*&)originalInvokerFASTCALL :
 					is_same<TOrigFunc, TRet __cdecl (TArgs...)>::value ?
-					(TOrigFunc*&)originalInvokerCDECL : (TOrigFunc*&)originalInvoker;
+					(TOrigFunc*&)originalInvokerCDECL : (TOrigFunc*&)originalInvokerSTDCALL;
 			}
 
 			CMethodHookSpec(LPVOID target, typename HelpTypes<TMethod>::TDetour detour) : CMethodHook(target),
