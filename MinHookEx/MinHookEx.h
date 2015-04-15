@@ -125,7 +125,6 @@ namespace MinHookEx
 		static SMethodPartsH<TOrigFunc, TObj> getMethodParts(TOrigFunc TObj::*)
 		{}
 
-
 		template<typename TMethod> struct HelpTypes
 		{
 		private:
@@ -332,7 +331,6 @@ namespace MinHookEx
 			CMethodHook& operator=(const CMethodHook&) = delete;
 
 		protected:
-
 			CMethodHook(LPVOID target) : CHook(target)
 			{}
 
@@ -348,7 +346,6 @@ namespace MinHookEx
 				setObjectThisPtr(thisPtr);
 				return _originalInvoker;
 			}
-
 		};
 
 		template<typename X, typename TMethod, typename TRet, typename TObject, typename ...TArgs>
