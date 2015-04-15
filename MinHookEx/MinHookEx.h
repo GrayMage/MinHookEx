@@ -35,6 +35,14 @@ namespace MinHookEx
 			SMethodHookUID& operator=(const SMethodHookUID&) = delete;
 		};
 
+		template<typename X> struct SVMTHookUID
+		{
+		public:
+			SVMTHookUID(const SVMTHookUID&) = default;
+			SVMTHookUID() = default;
+			SVMTHookUID& operator=(const SVMTHookUID&) = delete;
+		};
+
 		template<typename X> struct SFunctionHookUID
 		{
 		public:
@@ -52,10 +60,17 @@ namespace MinHookEx
 		{
 			return SFunctionHookUID<X>();
 		}
+
+		template<typename X> SVMTHookUID<X> htVMT(X x)
+		{
+			return SVMTHookUID<X>();
+		}
 	};
 
-#define MethodHookUID internal::htMethod([](){})
-#define FunctionHookUID internal::htFunction([](){})
+#define MethodHook internal::htMethod([](){})
+#define FunctionHook internal::htFunction([](){})
+#define StaticMethodHook FunctionHook
+#define VMTHook htVMT([](){})
 
 	class CMinHookEx
 	{
@@ -559,7 +574,7 @@ namespace MinHookEx
 		}
 
 		template<typename X, typename TMethod>
-		CMethodHook<TMethod>& add(internal::SMethodHookUID<X> methodHookUID, TMethod target, typename HelpTypes<TMethod>::TObject *object, typename HelpTypes<TMethod>::TDetour detour)
+		CMethodHook<TMethod>& add(internal::SVMTHookUID<X> methodHookUID, TMethod target, typename HelpTypes<TMethod>::TObject *object, typename HelpTypes<TMethod>::TDetour detour)
 		{
 			static bool bUsed = false;
 			if(bUsed) throw(exception("Invalid hook UID, use MethodHook or FunctionHook macros"));
