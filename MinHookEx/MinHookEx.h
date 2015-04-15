@@ -321,34 +321,17 @@ namespace MinHookEx
 			CMethodHook(LPVOID target) : CHook(target)
 			{}
 
-			struct SProxyObject
-			{
-				friend CMethodHook;
-			private:
-				SProxyObject(typename HelpTypes<TMethod>::TOrigFunc* origMethod) : originalMethod(origMethod)
-				{}
-				SProxyObject(const SProxyObject&) = delete;
-				SProxyObject& operator=(const SProxyObject&) = delete;
-
-			public:
-				typename HelpTypes<TMethod>::TOrigFunc* const originalMethod; //user interface; calls original method invoker; if we would have a method pointer here we'd get ugly method-by-pointer call syntax
-			} *_proxyObject;
-
-			void initProxyObject(typename HelpTypes<TMethod>::TOrigFunc* origMethod)
-			{
-				_proxyObject = new SProxyObject(origMethod);
-			}
+			typename HelpTypes<TMethod>::TOrigFunc* _originalInvoker;
 
 			virtual ~CMethodHook()
 			{
-				delete _proxyObject;
 			}
-
+			using TObject = typename HelpTypes<TMethod>::TObject;
 		public:
-			SProxyObject& object(typename HelpTypes<TMethod>::TObject *pThis)
+			typename HelpTypes<TMethod>::TOrigFunc* originalMethod(TObject *thisPtr)
 			{
-				setObjectThisPtr(pThis);
-				return *_proxyObject;
+				setObjectThisPtr(thisPtr);
+				return _originalInvoker;
 			}
 
 		};
@@ -387,7 +370,6 @@ namespace MinHookEx
 				_thisPointers[this_thread::get_id()] = pThis;
 			}
 
-			TMethod _originalMethod;
 			typename HelpTypes<TMethod>::TDetour _detour;
 
 			static TRet __stdcall invokeOriginalSTDCALL(TArgs...Args)
@@ -452,6 +434,7 @@ namespace MinHookEx
 					(LPVOID*&)detourInvokerCDECL : (LPVOID*&)detourInvoker;
 			}
 
+			TMethod _originalMethod;
 			using TOrigFunc = typename HelpTypes<TMethod>::TOrigFunc;
 
 			TOrigFunc* originalMethodInvokerAddr()
@@ -478,7 +461,7 @@ namespace MinHookEx
 
 				SThisKeeper::getInstance()->_pThis = this;
 
-				initProxyObject(originalMethodInvokerAddr());
+				_originalInvoker = originalMethodInvokerAddr();
 			};
 
 			virtual ~CMethodHookSpec()
