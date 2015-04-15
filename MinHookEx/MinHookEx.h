@@ -117,12 +117,12 @@ namespace MinHookEx
 			using TDetour = typename TFS::TDetour;
 		};
 
-		template<typename TOrigFunc, typename TObj>
-		static SMethodPartsH<TOrigFunc, TObj> getMethodParts(TOrigFunc TObj::*) //WORKS!
+		template<typename TRet, typename TObj, typename ...TArgs>
+		static SMethodPartsH<TRet __cdecl (TArgs...), TObj> getMethodParts(TRet(__cdecl TObj::*)(TArgs...))
 		{}
 
-		template<typename TRet, typename TObj, typename ...TArgs>
-		static SMethodPartsH<TRet __cdecl (TArgs...), TObj> getMethodParts(TRet (__cdecl TObj::*)(TArgs...)) //WORKS!
+		template<typename TOrigFunc, typename TObj>
+		static SMethodPartsH<TOrigFunc, TObj> getMethodParts(TOrigFunc TObj::*)
 		{}
 
 
