@@ -39,6 +39,7 @@ int __fastcall sumIdenticalSigFASTCALL(int a, int b)
 
 struct S
 {
+	int val;
 	int sum(int a, int b)
 	{
 		return a + b;
@@ -151,5 +152,17 @@ namespace Tests
 			Assert::AreEqual(hooks[&S::sumStatic]->originalFunc(1, 2), 3);
 		};
 
+		TEST_METHOD(COPY_ORIG_PTR)
+		{
+			S s1;
+			S s2;
+			s1.val = 1;
+			s2.val = 2;
+			hooks.add(MethodHook, &S::sum, [](S *pThis, int a, int b){pThis->val = 5; return 1; }).enable();
+			auto o1 = hooks[&S::sum]->originalMethod(&s1);
+			hooks[&S::sum]->originalMethod(&s2)(1, 2);
+			o1(1, 2);
+			Assert::AreEqual(s1.val, 5);
+		};
 	};
 }
