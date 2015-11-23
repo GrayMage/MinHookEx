@@ -606,6 +606,7 @@ virtual int CallingConvention get150() \
 return 150; \
 }
 
+#ifndef _M_X64
 template <typename TRet, typename TObject, typename ...TArgs>
 int VTableIndex(TRet (__stdcall TObject::*f)(TArgs...))
 {
@@ -633,19 +634,6 @@ int VTableIndex(TRet(__cdecl TObject::*f)(TArgs...))
 }
 
 template <typename TRet, typename TObject, typename ...TArgs>
-int VTableIndex(TRet(__fastcall TObject::*f)(TArgs...))
-{
-	struct VTableCounter
-	{
-		VTableOffsetGetters(__fastcall);
-	} vt;
-
-	using VTMethod = int(__fastcall VTableCounter::*)();
-	VTMethod getIndex = (VTMethod)f;
-	return (vt.*getIndex)();
-}
-
-template <typename TRet, typename TObject, typename ...TArgs>
 int VTableIndex(TRet(__thiscall TObject::*f)(TArgs...))
 {
 	struct VTableCounter
@@ -654,6 +642,20 @@ int VTableIndex(TRet(__thiscall TObject::*f)(TArgs...))
 	} vt;
 
 	using VTMethod = int(__thiscall VTableCounter::*)();
+	VTMethod getIndex = (VTMethod)f;
+	return (vt.*getIndex)();
+}
+#endif
+
+template <typename TRet, typename TObject, typename ...TArgs>
+int VTableIndex(TRet(__fastcall TObject::*f)(TArgs...))
+{
+	struct VTableCounter
+	{
+		VTableOffsetGetters(__fastcall);
+	} vt;
+
+	using VTMethod = int(__fastcall VTableCounter::*)();
 	VTMethod getIndex = (VTMethod)f;
 	return (vt.*getIndex)();
 }
