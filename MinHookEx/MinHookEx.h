@@ -22,63 +22,98 @@ class CMinHookEx
 private:
 	//------------------------HELPERS-----------------------
 #include "Inner/VTableIndex.h"
+	template <typename TFunc, typename TRet, typename ...TArgs>
+	class CFunctionHookSpec;
 
-	template <typename TObj, typename TRet, typename ...TArgs>
-	struct SFuncSTD
-	{
-		using TDetour = TRet(__stdcall *)(TObj *pVoid, TArgs ...);
-	};
-
-	template <typename TObj, typename TRet, typename ...TArgs>
-	struct SFuncCDECL
-	{
-		using TDetour = TRet(__cdecl *)(TObj *pVoid, TArgs ...);
-	};
-
-	template <typename TObj, typename TRet, typename ...TArgs>
-	struct SFuncFASTCALL
-	{
-		using TDetour = TRet(__fastcall *)(TObj *pVoid, TArgs ...);
-	};
-
+	template<typename U> struct S;
+#define SGenFunc(CC) template<typename TRet, typename ...TArgs>\
+		struct S<TRet CC (TArgs...)>\
+		{\
+			using type = TRet (*) (TArgs...);\
+			template<typename TFunc> using THookSpec = CFunctionHookSpec<TFunc, TRet, TArgs...>;\
+		};
 #ifndef _M_X64
-	template <typename TObj, typename TRet, typename ...TArgs>
-	static SFuncCDECL<TObj, TRet, TArgs...> funcStripper(TRet (__thiscall TObj::*)(TArgs ...)) //return type is correct!
-	{}
-
-	template <typename TObj, typename TRet, typename ...TArgs>
-	static SFuncSTD<TObj, TRet, TArgs...> funcStripper(TRet (__stdcall TObj::*)(TArgs ...)) {}
-
-	template <typename TObj, typename TRet, typename ...TArgs>
-	static SFuncCDECL<TObj, TRet, TArgs...> funcStripper(TRet (__cdecl TObj::*)(TArgs ...)) {}
+	SGenFunc(__cdecl);
+	SGenFunc(__stdcall);
 #endif
-	template <typename TObj, typename TRet, typename ...TArgs>
-	static SFuncFASTCALL<TObj, TRet, TArgs...> funcStripper(TRet (__fastcall TObj::*)(TArgs ...)) {}
-
-	template <typename TOrigF, typename TObj>
-	struct SMethodPartsH
+	SGenFunc(__fastcall);
+	template<typename TF, typename TO>
+	struct S<TF TO::*>
 	{
-		using TOrigFunction = TOrigF;
-		using TObject = TObj;
-		using TFS = decltype(funcStripper<TObj>(declval<TOrigF TObject::*>()));
-		using TDetour = typename TFS::TDetour;
+		using TFunc = TF;
+		using TObj = TO;
+	};
+	template<typename T> struct SMethodDetourType;
+#define SMethodDetourTypeGen(CC) template<typename TRet, typename TObj, typename ...TArgs>\
+	struct SMethodDetourType <TRet (CC TObj::*)(TArgs...)>\
+	{\
+		using TDetour = function<TRet(TObj *pThis, TArgs...)>;\
+	};
+#ifndef _M_X64
+	SMethodDetourTypeGen(__thiscall);
+	SMethodDetourTypeGen(__stdcall);
+	SMethodDetourTypeGen(__cdecl);
+#endif
+	SMethodDetourTypeGen(__fastcall);
+
+	template <typename TMethod, typename TRet, typename TObject, typename ...TArgs>
+	class CMethodHookSpec;
+
+	template<typename T> struct SHookSpecH;
+#define SHookSpecMethodGen(CC) template<typename TRet, typename TObj, typename ...TArgs>\
+	struct SHookSpecH<TRet (CC TObj::*)(TArgs...)>\
+	{\
+		using type = CMethodHookSpec<TRet (CC TObj::*)(TArgs...), TRet, TObj, TArgs...>;\
+	};
+#ifndef _M_X64
+	SHookSpecMethodGen(__thiscall);
+	SHookSpecMethodGen(__stdcall);
+	SHookSpecMethodGen(__cdecl);
+#endif
+	SHookSpecMethodGen(__fastcall);
+
+	template<typename TMethod, typename = void> struct HelpTypes;
+	template<typename TMethod>
+	struct HelpTypes<TMethod, typename enable_if<is_member_function_pointer<TMethod>::value>::type>
+	{
+		using TOrigFunc = typename S<TMethod>::TFunc;
+		using TObject = typename S<TMethod>::TObj;
+		using TDetour = typename SMethodDetourType<TMethod>::TDetour;
+		using THookSpec = typename SHookSpecH<TMethod>::type;
 	};
 
-	template <typename TRet, typename TObj, typename ...TArgs>
-	static SMethodPartsH<TRet __cdecl(TArgs ...), TObj> getMethodParts(TRet (__cdecl TObj::*)(TArgs ...)) {}
+template<typename TFunc>
+	struct HelpTypes<TFunc, typename enable_if<!is_member_function_pointer<TFunc>::value>::type>
+	{
+		using TDetour = function<TFunc>;
+		using THookSpec = typename S<TFunc>::template THookSpec<TFunc>;
+	};
 
-	template <typename TOrigFunc, typename TObj>
-	static SMethodPartsH<TOrigFunc, TObj> getMethodParts(TOrigFunc TObj::*) {}
+	template<typename T, typename = void> struct SCCStripper;
+	template<typename T>
+	struct SCCStripper<T, typename enable_if<!is_object<T>::value>::type>
+	{
+		using type = typename S<T>::type;
+	};
 
-	template <typename TMethod>
-	struct HelpTypes
+	template<typename T> 
+	struct SCCStripper<T, typename enable_if<is_object<T>::value>::type>
 	{
 	private:
-		using TParts = decltype(getMethodParts(declval<TMethod>()));
+		template<typename U> struct S;
+#define SGen(CC) template<typename TRet, typename TObj, typename ...TArgs>\
+		struct S<TRet (CC TObj::*)(TArgs...) const>\
+		{\
+			using type = TRet (*) (TArgs...);\
+		};
+#ifndef _M_X64
+		SGen(__thiscall);
+		SGen(__stdcall);
+		SGen(__cdecl);
+		#endif
+		SGen(__fastcall);
 	public:
-		using TOrigFunc = typename TParts::TOrigFunction;
-		using TObject = typename TParts::TObject;
-		using TDetour = typename TParts::TDetour;
+		using type = typename S<decltype(&T::operator())>::type;
 	};
 
 	//---------------------------------------------------------------------------
@@ -462,7 +497,7 @@ private:
 	{
 		friend CMinHookEx;
 	private:
-		TFunc *_detour;
+		function<TFunc> _detour;
 		TFunc *_originalFunc;
 
 		static TRet __stdcall invokeOriginalSTDCALL(TArgs ...Args)
@@ -531,8 +566,7 @@ private:
 		CDetourBridge _detourBridge;
 		COriginalBridge _originalBridge;
 
-		CFunctionHookSpec(TFunc *target, TFunc *detour) : CFunctionHook(target), _detour(detour),
-		                                                  _detourBridge(detourProxyAddr(), this)
+		CFunctionHookSpec(TFunc *target, function<TRet(TArgs...)> detour) : CFunctionHook(target), _detour(detour), _detourBridge(detourProxyAddr(), this)
 		{
 			LPVOID _pfnOriginal = nullptr;
 
@@ -565,10 +599,10 @@ private:
 			CProxyObject(const CProxyObject &) = default;
 			CProxyObject& operator=(const CProxyObject &) = delete;
 
-			CHook::COriginalBridgePool &_origBridgePool;
-			CHook::COriginalBridge *_originalBridge;
+			COriginalBridgePool &_origBridgePool;
+			COriginalBridge *_originalBridge;
 
-			CProxyObject(CHook::COriginalBridgePool &originalBridgePool, void *thisPtr,
+			CProxyObject(COriginalBridgePool &originalBridgePool, void *thisPtr,
 			             void *objectThisPtr, void *originalInvokerAddr) : _origBridgePool(originalBridgePool)
 			{
 				_originalBridge = _origBridgePool.get();
@@ -713,37 +747,17 @@ private:
 
 	unordered_map<LPVOID, CHook*> _hooks;
 
-	template <typename TMethod, typename TRet, typename TObject, typename ...TArgs>
-	CMethodHookSpec<TMethod, TRet, TObject, TArgs...> CMethodHookSpecH(TRet (TObject::*)(TArgs ...)) {}
-#ifndef _M_X64
-	template <typename TMethod, typename TRet, typename TObject, typename ...TArgs>
-	CMethodHookSpec<TMethod, TRet, TObject, TArgs...> CMethodHookSpecH(TRet (__cdecl TObject::*)(TArgs ...)) {}
-
-	template <typename TMethod, typename TRet, typename TObject, typename ...TArgs>
-	CMethodHookSpec<TMethod, TRet, TObject, TArgs...> CMethodHookSpecH(TRet (__stdcall TObject::*)(TArgs ...)) {}
-
-	template <typename TMethod, typename TRet, typename TObject, typename ...TArgs>
-	CMethodHookSpec<TMethod, TRet, TObject, TArgs...> CMethodHookSpecH(TRet (__fastcall TObject::*)(TArgs ...)) {}
-
-	template <typename TFunc, typename TRet, typename ...TArgs>
-	CFunctionHookSpec<TFunc, TRet, TArgs...> CFunctionHookSpecH(TRet (__cdecl *)(TArgs ...)) {}
-
-	template <typename TFunc, typename TRet, typename ...TArgs>
-	CFunctionHookSpec<TFunc, TRet, TArgs...> CFunctionHookSpecH(TRet (__fastcall*)(TArgs ...)) {}
-#endif
-	template <typename TFunc, typename TRet, typename ...TArgs>
-	CFunctionHookSpec<TFunc, TRet, TArgs...> CFunctionHookSpecH(TRet (__stdcall*)(TArgs ...)) {}
-
 	bool hookExists(LPVOID target)
 	{
 		return _hooks.find(target) != _hooks.end();
 	}
 
-public:
 	~CMinHookEx()
 	{
 		removeAll();
 	}
+
+public:
 
 	void removeAll()
 	{
@@ -761,44 +775,44 @@ public:
 		return instance;
 	}
 
-	template <typename TMethod>
-	CMethodHook<TMethod>& addMethodHook(TMethod target, typename HelpTypes<TMethod>::TDetour detour)
+	template <typename TMethod, typename TDetour>
+	CMethodHook<TMethod>& addHook(TMethod target, TDetour detour)
 	{
+		static_assert(is_same<typename SCCStripper<TDetour>::type, typename SCCStripper<typename HelpTypes<TMethod>::TDetour>::type>::value, "Unable to hook method: invalid detour signature! Must be TRet (TObject*, TArgs...)");
+
 		if (hookExists((void*&)target))
 			_hooks.at((void*&)target)->deleteLater();
 
-		using TMH = decltype(CMethodHookSpecH<TMethod>(declval<TMethod>()));
-		auto h = new TMH((LPVOID)(void*&)target, detour);
+		auto h = new typename HelpTypes<TMethod>::THookSpec((LPVOID)(void*&)target, detour);
 		_hooks[(void*&)target] = h;
 		return *h;
 	}
-
-	template <typename TMethod>
-	CMethodHook<TMethod>& addVMTHook(TMethod target, typename HelpTypes<TMethod>::TObject *object, typename HelpTypes<TMethod>::TDetour detour)
+	
+	template <typename TVirtualMethod, typename TDetour>
+	CMethodHook<TVirtualMethod>& addHook(TVirtualMethod target, typename HelpTypes<TVirtualMethod>::TObject *object, TDetour detour)
 	{
+		static_assert(is_same<typename SCCStripper<TDetour>::type, typename SCCStripper<typename HelpTypes<TVirtualMethod>::TDetour>::type>::value, "Unable to hook virtual method: invalid detour signature! Must be TRet (TObject*, TArgs...)");
+
 		if (hookExists((void*&)target))
 			_hooks.at((void*&)target)->deleteLater();
 
 		int vtblOffset = VTableIndex(target);
 		size_t *vtbl = (size_t*)*(size_t*)object;
 		LPVOID t = (LPVOID)vtbl[vtblOffset];
-		using TMH = decltype(CMethodHookSpecH<TMethod>(declval<TMethod>()));
-		auto h = new TMH(t, detour);
-
+		auto h = new typename HelpTypes<TVirtualMethod>::THookSpec(t, detour);
 		_hooks[(void*&)target] = h;
-		
 		return *h;
 	}
 
-	template <typename TFunc>
-	CFunctionHook<TFunc>& addFunctionHook(TFunc *target, decltype(target) detour)
+	template <typename TFunc, typename TDetour>
+	CFunctionHook<TFunc>& addHook(TFunc *target, TDetour detour)
 	{
+		static_assert(is_same<typename SCCStripper<TFunc>::type, typename SCCStripper<typename remove_pointer<TDetour>::type>::type>::value, "Unable to hook function: detour signature differs from target!");
+		
 		if (hookExists(target))
 			_hooks.at(target)->deleteLater();
 
-		using TMH = decltype(CFunctionHookSpecH<TFunc>(declval<TFunc*>()));
-		auto h = new TMH(target, detour);
-		
+		auto h = new typename HelpTypes<TFunc>::THookSpec(target, detour);
 		_hooks[target] = h;
 		return *h;
 	}
