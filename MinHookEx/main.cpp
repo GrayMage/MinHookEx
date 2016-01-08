@@ -78,20 +78,30 @@ struct S
 int main()
 {
 	auto &hooks = CMinHookEx::getInstance();
+	int capchka = 100500;
+	hooks.addHook(sumSTDCALL, [=](int a, int b) {cout << "Hi! a = " << capchka << endl; return 1; }).enable();
 	
-	hooks.addFunctionHook(sumSTDCALL, [](int a, int b) {cout << "Hi! a = " << a << endl; return 1; }).enable();
+	auto pfn =(void*) 0xDEAD;
+	using TFN = int (*)(int a, double b);
+	auto pTarget = (TFN)pfn;
+/*
+	hooks.addFunctionHook(pTarget, [=](int a, double b) {return pTarget(1, 2.0); }).enable();
+
 	
 	cout << sumSTDCALL(1, 2) << endl;
 	
-	/*
-	cout << hooks[sumSTDCALL]->originalFunc(1, 2) << endl;
+*/
 
-	hooks.addMethodHook(&S::sumTHISCALL, [](S*pThis, int a, int b)
+//	cout << hooks[sumSTDCALL]->originalFunc(1, 2) << endl;
+
+/*
+	hooks.addHook(&S::sumTHISCALL, [&](S*pThis, int a, int b)
 	{cout << "a = " << a << "; b = " << b << endl; a = 50; b = 60; return a+b; }).enable();
 	S s;
 //	DebugBreak();
 	cout << s.sumTHISCALL(10, 20) << endl;
-	hooks.addMethodHook(&STest::m, [](STest* pVoid, int a){cout << "Hi! STest::m a = " << a << endl; }).enable();
+*/
+/*	hooks.addMethodHook(&STest::m, [](STest* pVoid, int a){cout << "Hi! STest::m a = " << a << endl; }).enable();
 	STest t, t1, t2;
 	t.m(1);
 	auto &o = hooks[&STest::m]->object(&t),
