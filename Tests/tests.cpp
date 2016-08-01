@@ -43,6 +43,12 @@ int __fastcall intIntIntDetourFASTCALL(int a, int b)
 	return 5;
 }
 
+__declspec(noinline)
+int sumForSetRemove(int a, int b)
+{
+	return a + b;
+}
+
 struct S
 {
 	int val;
@@ -159,6 +165,8 @@ namespace Tests
 			Assert::AreEqual(3, hooks[&S::sumCDECL].object(&s).originalMethod(1, 2));
 		};
 
+		
+		
 		TEST_METHOD(STDCALL_CC)
 		{
 			hooks.addHook(&S::sumSTDCALL, [](S*pThis, int a, int b){return 1; }).enable();
@@ -182,7 +190,8 @@ namespace Tests
 
 		TEST_METHOD(VMTHook)
 		{
-			Base &b = Derived();
+			Derived d;
+			Base &b = d;
 			hooks.addHook(&Base::m, &b, [](Base *pThis, int a, int b){return 1; }).enable();
 			auto e = b.m(100, 100);
 			Assert::AreEqual(1, e);
@@ -195,12 +204,23 @@ namespace Tests
 			Assert::AreEqual(10, s.sum(1, 1));
 		}
 
+		TEST_METHOD(SET_THEN_REMOVE)
+		{
+			hooks.addHook(sumForSetRemove, [](int a, int b)
+			{
+				return 1;
+			}).enable();
+			Assert::AreEqual(1, sumForSetRemove(5, 5));
+			hooks.removeAll();
+			Assert::AreEqual(10, sumForSetRemove(5, 5));
+		}
+
 		TEST_METHOD(COPY_ORIG_PTR)
 		{
 			S s1;
 			S s2;
 			hooks.addHook(&S::sum, [](S *pThis, int a, int b){pThis->val = 100; return 1; }).enable();
-			auto &o1 = hooks[&S::sum].object(&s1);
+			const auto &o1 = hooks[&S::sum].object(&s1);
 			hooks[&S::sum].object(&s2).originalMethod(5, 5);
 			o1.originalMethod(10, 10);
 			Assert::AreEqual(20, s1.val);
