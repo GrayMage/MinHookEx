@@ -25,7 +25,7 @@ private:
 	template <typename TFunc, typename TRet, typename ...TArgs>
 	class CFunctionHookSpec;
 
-	template<typename U> struct S;
+	template<typename U, typename = void> struct S;
 #define SGenFunc(CC) template<typename TRet, typename ...TArgs>\
 		struct S<TRet CC (TArgs...)>\
 		{\
@@ -37,12 +37,27 @@ private:
 	SGenFunc(__stdcall);
 #endif
 	SGenFunc(__fastcall);
+
 	template<typename TF, typename TO>
 	struct S<TF TO::*>
 	{
 		using TFunc = TF;
 		using TObj = TO;
 	};
+
+#define SGenFallbackForDefaultCC(CC) template<typename TRet, typename TO, typename ...TArgs>\
+	struct S<TRet (CC TO::*) (TArgs...), typename enable_if<is_same<TRet (CC)(TArgs...), TRet(TArgs...)>::value>::type>\
+	{\
+		using TFunc = TRet (TArgs...);\
+		using TObj = TO;\
+	};
+
+#ifndef _M_X64
+	SGenFallbackForDefaultCC(__cdecl);
+	SGenFallbackForDefaultCC(__stdcall);
+	SGenFallbackForDefaultCC(__fastcall);
+#endif
+#define emptyCC
 	template<typename T> struct SMethodDetourType;
 #define SMethodDetourTypeGen(CC) template<typename TRet, typename TObj, typename ...TArgs>\
 	struct SMethodDetourType <TRet (CC TObj::*)(TArgs...)>\
@@ -50,11 +65,11 @@ private:
 		using TDetour = function<TRet(TObj *pThis, TArgs...)>;\
 	};
 #ifndef _M_X64
-	SMethodDetourTypeGen(__thiscall);
 	SMethodDetourTypeGen(__stdcall);
 	SMethodDetourTypeGen(__cdecl);
-#endif
 	SMethodDetourTypeGen(__fastcall);
+#endif
+	SMethodDetourTypeGen(emptyCC);
 
 	template <typename TMethod, typename TRet, typename TObject, typename ...TArgs>
 	class CMethodHookSpec;
@@ -66,11 +81,11 @@ private:
 		using type = CMethodHookSpec<TRet (CC TObj::*)(TArgs...), TRet, TObj, TArgs...>;\
 	};
 #ifndef _M_X64
-	SHookSpecMethodGen(__thiscall);
 	SHookSpecMethodGen(__stdcall);
 	SHookSpecMethodGen(__cdecl);
-#endif
 	SHookSpecMethodGen(__fastcall);
+#endif
+	SHookSpecMethodGen(emptyCC);
 
 	template<typename TMethod, typename = void> struct HelpTypes;
 	template<typename TMethod>
@@ -107,11 +122,11 @@ template<typename TFunc>
 			using type = TRet (*) (TArgs...);\
 		};
 #ifndef _M_X64
-		SGen(__thiscall);
 		SGen(__stdcall);
 		SGen(__cdecl);
-		#endif
 		SGen(__fastcall);
+#endif
+		SGen(emptyCC);
 	public:
 		using type = typename S<decltype(&T::operator())>::type;
 	};
