@@ -1,0 +1,3 @@
+[submodule "MinHookEx/minhook"]
+	path = MinHookEx/minhook
+	url = https://github.com/GrayMage/minhook.git
